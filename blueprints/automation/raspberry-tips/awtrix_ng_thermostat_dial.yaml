@@ -7,6 +7,9 @@ blueprint:
     pressed. Needs the MQTT integration and the app from
     https://github.com/raspberry-tips/awtrix-ng-thermostat-dial
   domain: automation
+  author: raspberry.tips
+  homeassistant:
+    min_version: "2024.10.0"
   source_url: https://github.com/raspberry-tips/awtrix-ng-thermostat-dial/blob/main/blueprints/automation/raspberry-tips/awtrix_ng_thermostat_dial.yaml
   input:
     thermostat:
