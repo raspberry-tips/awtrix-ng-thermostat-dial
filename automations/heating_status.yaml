@@ -1,0 +1,22 @@
+alias: "TC002 heating: status to the clock"
+description: Sends target temperature, current temperature and mode to the Heating app on the TC002
+mode: queued
+max: 10
+triggers:
+  - trigger: state
+    entity_id: climate.office_thermostat
+  - trigger: homeassistant
+    event: start
+variables:
+  thermostat: climate.office_thermostat
+actions:
+  - action: mqtt.publish
+    data:
+      topic: awtrix/heating/state
+      retain: true
+      payload: >-
+        {{ {'target': state_attr(thermostat, 'temperature'),
+            'current': state_attr(thermostat, 'current_temperature'),
+            'mode': states(thermostat),
+            'min': state_attr(thermostat, 'min_temp'),
+            'max': state_attr(thermostat, 'max_temp')} | to_json }}

@@ -1,0 +1,91 @@
+alias: "TC002 pages: indoor, outdoor, energy, battery"
+description: Four pages with animated icons on the Ulanzi TC002 (AWTRIX NG)
+mode: single
+max_exceeded: silent
+triggers:
+  - trigger: state
+    entity_id:
+      - sensor.living_room_temperature
+      - sensor.living_room_humidity
+      - sensor.outdoor_temperature
+      - sensor.outdoor_humidity
+      - sensor.pv_power
+      - sensor.grid_power
+      - sensor.battery_level
+      - sensor.battery_charging_power
+      - sensor.battery_discharging_power
+  - trigger: mqtt
+    topic: ccc4b2c7e38f/availability
+    payload: online
+  - trigger: homeassistant
+    event: start
+variables:
+  prefix: ccc4b2c7e38f
+  indoor: "{{ states('sensor.living_room_temperature') | float(0) }}"
+  indoor_humidity: "{{ states('sensor.living_room_humidity') | int(0) }}"
+  outdoor: "{{ states('sensor.outdoor_temperature') | float(0) }}"
+  outdoor_humidity: "{{ states('sensor.outdoor_humidity') | int(0) }}"
+  pv: "{{ states('sensor.pv_power') | int(0) }}"
+  grid: "{{ states('sensor.grid_power') | int(0) }}"
+  battery: "{{ states('sensor.battery_level') | int(0) }}"
+  battery_charge: "{{ states('sensor.battery_charging_power') | int(0) }}"
+  battery_discharge: "{{ states('sensor.battery_discharging_power') | int(0) }}"
+  battery_w: "{{ battery_charge - battery_discharge }}"
+  house: "{{ [pv + grid - battery_w, 0] | max }}"
+  battery_color: "{{ '#FF5050' if battery < 20 else ('#FFD200' if battery < 50 else '#40FF40') }}"
+actions:
+  - action: mqtt.publish
+    data:
+      topic: "{{ prefix }}/cmd/apps/pushed/indoor"
+      payload: >-
+        {% macro temp_color(t) %}{{ '#4FA3FF' if t < 18 else ('#7CFC00' if t < 23 else '#FF8C00') }}{% endmacro %}
+        {% macro deg(t) %}{{ ('%.0f' | format(t)) if t <= -10 else ('%.1f' | format(t)) }}°{% endmacro %}
+        {{ {'durationMs': 8000, 'layout': {'version': 1, 'regions': [
+          {'id': 'i0', 'box': [11, 0, 8, 8], 'icon': 'sofa'},
+          {'id': 'v0', 'box': [21, 0, 26, 8], 'align': 'start', 'scroll': 'static',
+           'text': deg(indoor), 'color': temp_color(indoor)},
+          {'id': 'i1', 'box': [11, 8, 8, 8], 'icon': '2423'},
+          {'id': 'v1', 'box': [21, 8, 26, 8], 'align': 'start', 'scroll': 'static',
+           'text': indoor_humidity ~ '%', 'color': '#5BC0FF'}]}} | to_json }}
+  - action: mqtt.publish
+    data:
+      topic: "{{ prefix }}/cmd/apps/pushed/outdoor"
+      payload: >-
+        {% macro temp_color(t) %}{{ '#4FA3FF' if t < 18 else ('#7CFC00' if t < 23 else '#FF8C00') }}{% endmacro %}
+        {% macro deg(t) %}{{ ('%.0f' | format(t)) if t <= -10 else ('%.1f' | format(t)) }}°{% endmacro %}
+        {{ {'durationMs': 8000, 'layout': {'version': 1, 'regions': [
+          {'id': 'i0', 'box': [11, 0, 8, 8], 'icon': '23331'},
+          {'id': 'v0', 'box': [21, 0, 26, 8], 'align': 'start', 'scroll': 'static',
+           'text': deg(outdoor), 'color': temp_color(outdoor)},
+          {'id': 'i1', 'box': [11, 8, 8, 8], 'icon': '1167'},
+          {'id': 'v1', 'box': [21, 8, 26, 8], 'align': 'start', 'scroll': 'static',
+           'text': outdoor_humidity ~ '%', 'color': '#5BC0FF'}]}} | to_json }}
+  - action: mqtt.publish
+    data:
+      topic: "{{ prefix }}/cmd/apps/pushed/energy"
+      payload: >-
+        {{ {'durationMs': 8000, 'layout': {'version': 1, 'regions': [
+          {'id': 'i0', 'box': [11, 0, 8, 8], 'icon': '43697'},
+          {'id': 'v0', 'box': [21, 0, 26, 8], 'align': 'start', 'scroll': 'static',
+           'text': pv ~ 'W', 'color': '#FFD200'},
+          {'id': 'i1', 'box': [11, 8, 8, 8], 'icon': '23842'},
+          {'id': 'v1', 'box': [21, 8, 26, 8], 'align': 'start', 'scroll': 'static',
+           'text': house ~ 'W', 'color': '#FF5050' if grid > 0 else '#40FF40'}]}} | to_json }}
+  - action: mqtt.publish
+    data:
+      topic: "{{ prefix }}/cmd/apps/pushed/battery"
+      payload: >-
+        {% set level = (battery * 6 / 100) | round(0) | int %}
+        {% set level_icon = ['77669', '77668', '77667', '77666', '77665', '77664', '77663'][level] %}
+        {% if battery_w > 0 %}{% set direction = {'id': 'dir', 'box': [11, 8, 8, 8], 'icon': '77826'} %}
+        {% elif battery_w < 0 %}{% set direction = {'id': 'dir', 'box': [11, 8, 8, 8], 'icon': '77827'} %}
+        {% else %}{% set direction = {'id': 'dir', 'box': [11, 8, 8, 8],
+          'draw': [['rectFill', 2, 3, 4, 2, '#606060']]} %}{% endif %}
+        {{ {'durationMs': 8000, 'layout': {'version': 1, 'regions': [
+          {'id': 'bat', 'box': [11, 0, 8, 8], 'icon': level_icon},
+          {'id': 'soc', 'box': [21, 0, 26, 8], 'align': 'start', 'scroll': 'static',
+           'text': battery ~ '%', 'color': battery_color},
+          direction,
+          {'id': 'w', 'box': [21, 8, 26, 8], 'align': 'start', 'scroll': 'static',
+           'text': (battery_w | abs) ~ 'W',
+           'color': '#40FF40' if battery_w > 0 else ('#FF8C00' if battery_w < 0 else '#606060')}]}} | to_json }}

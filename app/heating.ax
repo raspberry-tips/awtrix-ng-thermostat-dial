@@ -1,0 +1,126 @@
+# @name    Heating
+# @desc    Thermostat from Home Assistant: turn the knob to change the setpoint, press it to change the mode
+# @version 1.0
+# @config  topic text "MQTT topic" default="awtrix/heating" help="Base topic, the same as in the Home Assistant automations"
+import json
+
+class Heating
+  var base, target, current, mode, tmin, tmax
+  var pending, last_turn, hold_until
+  var top, tag, bottom, color, core
+  var flame
+
+  def init()
+    self.base = store.get("topic")
+    self.target = nil
+    self.current = nil
+    self.mode = "auto"
+    self.tmin = 5
+    self.tmax = 30
+    self.pending = false
+    self.last_turn = 0
+    self.hold_until = 0
+    # 8 x 13 flame: # = outer color, o = core
+    self.flame = ["...#....", "...##...", "..###...", "..####..", ".#####..",
+                  ".######.", "########", "###oo###", "##oooo##", "##oooo##",
+                  "##oooo##", ".##oo##.", "..####.."]
+    self.build()
+  end
+
+  def setup()
+    mqtt.subscribe(self.base + "/state", / t, p -> self.on_state(p))
+  end
+
+  # Home Assistant sends {"target":21.5,"current":20.5,"mode":"auto","min":5,"max":30.5}
+  def on_state(p)
+    var d = json.load(p)
+    if d == nil return end
+    if d.find("current") != nil self.current = num(d["current"]) end
+    if d.find("min") != nil self.tmin = num(d["min"]) end
+    if d.find("max") != nil self.tmax = num(d["max"]) end
+    # Homematic reports short in-between modes while switching: keep the local mode for a moment
+    if d.find("mode") != nil && now_ms() > self.hold_until self.mode = d["mode"] end
+    # while the knob is turned, or shortly after sending, keep the local setpoint
+    if d.find("target") != nil && !self.pending && now_ms() > self.hold_until
+      self.target = num(d["target"])
+    end
+    self.build()
+  end
+
+  def on_knob(ev)
+    if ev == "left" || ev == "right"
+      if self.target == nil || self.mode == "off" return true end
+      var step = ev == "right" ? 0.5 : -0.5
+      self.target = max(self.tmin, min(self.target + step, self.tmax))
+      self.pending = true
+      self.last_turn = now_ms()
+      self.build()
+      return true
+    elif ev == "press"
+      var nxt = {"auto": "heat", "heat": "off", "off": "auto"}
+      self.mode = nxt.find(self.mode, "auto")
+      mqtt.publish(self.base + "/set/mode", self.mode)
+      self.hold_until = now_ms() + 15000
+      self.build()
+      return true
+    end
+    return true
+  end
+
+  # stay 20 s on screen instead of the usual 7 s; every turn or press restarts the time
+  def duration()
+    return 20000
+  end
+
+  def loop()
+    # send the new setpoint once the knob has rested for a second
+    if self.pending && now_ms() - self.last_turn > 1000
+      self.pending = false
+      self.hold_until = now_ms() + 15000
+      mqtt.publish(self.base + "/set/target", str(self.target))
+    end
+  end
+
+  def fmt(v)
+    if v == nil return "--" end
+    var t = int(v * 10 + 0.5)
+    return str(t / 10) + "." + str(t % 10) + "°"
+  end
+
+  def build()
+    if self.mode == "off"
+      self.top = "OFF"
+      self.tag = ""
+      self.color = 0x3A6EA5
+      self.core = 0x9EC9FF
+    else
+      self.top = self.fmt(self.target)
+      self.tag = self.mode == "heat" ? "MAN" : "AUTO"
+      self.color = self.mode == "heat" ? 0xFF2A00 : 0xFF7A00
+      self.core = 0xFFD200
+    end
+    self.bottom = "NOW " + self.fmt(self.current)
+  end
+
+  def draw()
+    clear()
+    font("small")
+    var y = 0
+    for row : self.flame
+      for x : 0 .. 7
+        var c = row[x]
+        if c == "#" pixel(1 + x, 2 + y, self.color)
+        elif c == "o" pixel(1 + x, 2 + y, self.core)
+        end
+      end
+      y += 1
+    end
+    text(12, 6, self.top, self.pending ? 0xFFFFFF : self.color)
+    if self.tag != ""
+      text(width() - text_width(self.tag), 6, self.tag, 0x808080)
+    end
+    text(12, 14, self.bottom, 0xC0C0C0)
+  end
+end
+
+return Heating()

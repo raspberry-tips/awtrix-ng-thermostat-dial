@@ -1,0 +1,31 @@
+alias: "TC002 heating: commands from the clock"
+description: Sets target temperature and HVAC mode when the TC002 knob is turned or pressed
+mode: queued
+max: 10
+triggers:
+  - trigger: mqtt
+    topic: awtrix/heating/set/target
+    id: target
+  - trigger: mqtt
+    topic: awtrix/heating/set/mode
+    id: mode
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: target
+        sequence:
+          - action: climate.set_temperature
+            target:
+              entity_id: climate.office_thermostat
+            data:
+              temperature: "{{ trigger.payload | float }}"
+      - conditions:
+          - condition: trigger
+            id: mode
+        sequence:
+          - action: climate.set_hvac_mode
+            target:
+              entity_id: climate.office_thermostat
+            data:
+              hvac_mode: "{{ trigger.payload }}"

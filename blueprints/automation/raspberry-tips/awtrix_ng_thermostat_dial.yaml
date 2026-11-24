@@ -1,0 +1,85 @@
+blueprint:
+  name: AWTRIX NG thermostat dial (Ulanzi TC002)
+  description: >-
+    Connects the Heating app (heating.ax) on an Ulanzi TC002 running AWTRIX NG
+    to a climate entity. Sends target temperature, current temperature and mode
+    to the clock, and applies the new target or mode when the knob is turned or
+    pressed. Needs the MQTT integration and the app from
+    https://github.com/raspberry-tips/awtrix-ng-thermostat-dial
+  domain: automation
+  source_url: https://github.com/raspberry-tips/awtrix-ng-thermostat-dial/blob/main/blueprints/automation/raspberry-tips/awtrix_ng_thermostat_dial.yaml
+  input:
+    thermostat:
+      name: Thermostat
+      description: Climate entity the knob controls (modes auto, heat and off work best).
+      selector:
+        entity:
+          filter:
+            - domain: climate
+    topic:
+      name: MQTT base topic
+      description: >-
+        Must match the default value in the app's @config topic line. Only
+        change it if you run several clocks.
+      default: awtrix/heating
+      selector:
+        text:
+
+mode: queued
+max: 10
+
+trigger_variables:
+  base: !input topic
+
+triggers:
+  - trigger: state
+    entity_id: !input thermostat
+    id: status
+  - trigger: homeassistant
+    event: start
+    id: status
+  - trigger: mqtt
+    topic: "{{ base }}/set/target"
+    id: target
+  - trigger: mqtt
+    topic: "{{ base }}/set/mode"
+    id: mode
+
+variables:
+  thermostat: !input thermostat
+  base: !input topic
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: status
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ base }}/state"
+              retain: true
+              payload: >-
+                {{ {'target': state_attr(thermostat, 'temperature'),
+                    'current': state_attr(thermostat, 'current_temperature'),
+                    'mode': states(thermostat),
+                    'min': state_attr(thermostat, 'min_temp'),
+                    'max': state_attr(thermostat, 'max_temp')} | to_json }}
+      - conditions:
+          - condition: trigger
+            id: target
+        sequence:
+          - action: climate.set_temperature
+            target:
+              entity_id: "{{ thermostat }}"
+            data:
+              temperature: "{{ trigger.payload | float }}"
+      - conditions:
+          - condition: trigger
+            id: mode
+        sequence:
+          - action: climate.set_hvac_mode
+            target:
+              entity_id: "{{ thermostat }}"
+            data:
+              hvac_mode: "{{ trigger.payload }}"
